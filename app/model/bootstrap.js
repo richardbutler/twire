@@ -1,14 +1,12 @@
-var Sequelize = require( "sequelize" );
-var _ = require( "underscore" );
+var Sequelize = require( "sequelize" ),
+    _ = require( "underscore" ),
+    core = require( "../core" ),
+    redback = core.redback;
 
 var db = new Sequelize( null, null, null, {
   dialect: "sqlite",
   storage: "db/db.sqlite"
 });
-var tableOptions = {
-  paranoid: false,
-  underscored: false
-};
 
 const USERNAME_REGEX = /[@]+[A-Za-z0-9-_]+/g;
 const HASH_TAG_REGEX = /[#]+[A-Za-z0-9-_]+/g;
@@ -39,8 +37,26 @@ var User = db.define(
       allowNull: false
     }
   },
-  tableOptions
+  {
+    paranoid: true,
+    instanceMethods: {
+      getSocialGraph: function() {
+        if ( this.isNewRecord ) throw new Error( "Cannot create a social graph for an unsaved model" );
+        return User.getSocialGraph( this.id );
+      }
+    },
+    classMethods: {
+      getSocialGraph: function( userId ) {
+        if ( User.socialGraphs[ userId ] === undefined ) {
+          User.socialGraphs[ userId ] = redback.createSocialGraph( userId, User.SOCIAL_GRAPH_KEY );
+        }
+        return User.socialGraphs[ userId ];
+      }
+    }
+  }
 );
+User.SOCIAL_GRAPH_KEY = "twire_social_graph";
+User.socialGraphs = {};
 
 var Message = db.define(
   "Message", {
@@ -58,17 +74,32 @@ var Message = db.define(
       allowNull: false
     },
     tags: Sequelize.TEXT,
+    usernames: Sequelize.TEXT,
+    links: Sequelize.TEXT,
     repostedMessageId: Sequelize.INTEGER
   },
-  _.extend( {
+  {
+    paranoid: false,
     instanceMethods: {
       isRepost: function() {
         return this.repostedMessage === null;
       },
+      compile: function() {
+        this.compileTags();
+        this.compileUsernames();
+        this.compileLinks();
+      },
       compileTags: function() {
-        var message = this.body;
-        var tags = message.match( HASH_TAG_REGEX );
-        this.tags = tags.join( "," );
+        this.tags = this.getMatches( HASH_TAG_REGEX ).join( "," );
+      },
+      compileUsernames: function() {
+        this.usernames = this.getMatches( USERNAME_REGEX ).join( "," );
+      },
+      compileLinks: function() {
+        this.links = this.getMatches( URL_REGEX ).join( "," );
+      },
+      getMatches: function( regex ) {
+        return this.body.match( HASH_TAG_REGEX ) || [];
       },
       repost: function( userId ) {
         var m = Message.build({
@@ -79,7 +110,7 @@ var Message = db.define(
         });
       }
     }
-  }, tableOptions )
+  }
 );
 
 /*
@@ -113,9 +144,13 @@ Message
   .belongsTo( User, { as: "user", foreignKey: "userId" } )
   .hasOne( Message, { as: "repostedMessage", foreignKey: "repostedMessageId" } );
 
-db.sync().error( function( err ) {
-  console.log( "Error syncing", err );
-});
+db.sync()
+  .success( function() {
+    core.broadcaster.emit( "db:loaded" );
+  })
+  .error( function( err ) {
+    console.log( "Error syncing", err );
+  });
 
 module.exports = {
   db: db,

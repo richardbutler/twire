@@ -1,6 +1,7 @@
-var session = require( "./model/session" );
-var model = require( "./model/bootstrap" );
-var $ = require( "zepto-node" );
+var session = require( "./model/session" ),
+    model = require( "./model/bootstrap" ),
+    $ = require( "zepto-node" ),
+    core = require( "./core" );
 
 module.exports = ( function() {
   return {
@@ -10,8 +11,8 @@ module.exports = ( function() {
         body: message,
         userId: session.user.id
       });
-      m.compileTags();
-      console.log( m.body, m.values );
+      m.compile();
+      core.broadcaster.emit( "socket:emit", m );
       return m.save();
     },
 

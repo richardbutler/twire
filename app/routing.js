@@ -1,21 +1,16 @@
-var Messaging = require( "./messaging" );
-
 module.exports = (function() {
   var Router = {
     init: function( app ) {
 
-      app.get( "/", function( req, res ) {
-        res.render( "index" );
-      });
+      // App
+      app.get( "/", require( "./action/index" ) );
 
-      app.post( "/post", function( req, res ) {
-        Messaging.post( req.body.message ).success( function( message ) {
-          res.send( message.values );
-        }).error( function( err ) {
-          console.log( "couldn't save model", err );
-          res.send( 500 );
-        });
-      });
+      // Posts
+      app.post( "/post", require( "./action/post/create" ) );
+
+      // Users
+      app.post( "/users/create", require( "./action/user/create" ) );
+      app.get( "/users/follow/:userToFollowId", require( "./action/user/follow" ) );
 
     }
   }

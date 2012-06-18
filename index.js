@@ -2,10 +2,11 @@ var express = require( "express" ),
     http = require( "http" ),
     routing = require( "./app/routing" ),
     socket = require( "./app/socket" ),
-    model = require( "./app/model/bootstrap" );
+    core = require( "./app/core" );
 
 var app = express(),
-    server = http.createServer( app );
+    server = http.createServer( app ),
+    db = require( "./app/model/bootstrap" );
 
 app.configure( function() {
   app.use( "/", express.static( __dirname + "/public" ) );
@@ -15,5 +16,7 @@ app.configure( function() {
 
 server.listen( 3000 );
 
-routing.init( app, socket );
-socket.init( server );
+core.broadcaster.on( "db:loaded", function() {
+  routing.init( app, socket );
+  socket.init( server );
+});

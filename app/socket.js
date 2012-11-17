@@ -14,42 +14,68 @@ module.exports = (function() {
       console.log( "socket init" );
 
       io.sockets.on( "connection", function( socket ) {
-        console.log( "socket connected" );
-        self.sockets.push( new Socket( socket ) );
+        var userId = userProvider.currentUserId,
+            sock = new Socket( socket, userId );
+
+        console.log( "socket connected", userId );
+
+        if ( self.socketsByUserId[ userId ] !== undefined ) {
+          throw new Error( "Attempting to create duplicate socket for user ID " + userId );
+        }
+
+        self.sockets.push( sock );
+        self.socketsByUserId[ userId ] = sock;
       });
 
       this.io = io;
       this.sockets = [];
+      this.socketsByUserId = {};
     },
     socketClosed: function( socket ) {
+      console.log( "socket closed", socket.userId );
       this.sockets = _( this.sockets ).without( socket );
+      delete this.socketsByUserId[ socket.userId ];
     },
-    send: function( message ) {
-      this.io.sockets.emit( "message", message );
+    socketForUser: function( userId ) {
+      if ( this.socketsByUserId[ userId ] === undefined ) {
+        throw new Error( "No socket for user id " + userId );
+      }
+      return this.socketsByUserId[ userId ];
     },
-    sendToRoom: function( room, message ) {
-      console.log( "emitting message", room, message );
-      this.io.sockets.in( room ).emit( "message", message );
+    sendToRoom: function( room, event, message ) {
+      var room = "user-" + userId;
+      console.log( "emitting message", room, event, message );
+      this.io.sockets.in( room ).emit( event, message );
+    },
+    sendToUserRoom: function( userId, event, message ) {
+      var room = "user-" + userId;
+      console.log( "emitting message", room, event, message );
+      this.io.sockets.in( room ).emit( event, message );
     }
   }
 
-  Socket = function( io ) {
-    _( this ).bindAll( "disconnect", "message" );
+  Socket = function( io, userId ) {
+    _( this ).bindAll( "disconnect", "message", "joinRoomForUser", "leaveRoomForUser" );
 
-    console.log( "created socket" );
+    console.log( "created socket", userId );
 
-    var g = this.graph = userProvider.getSocialGraph();
+    var g = this.graph = userProvider.getSocialGraph(),
+        self = this,
+        userRoom = "user-" + userId;
+
     g.getFollowing( function( err, following ) {
       console.log( "got following", following );
-      following.forEach( function( userId ) {
-        console.log( userProvider.currentUserId, "joining", "user-" + userId, "channel" );
-        io.join( "user-" + userId );
-      } );
+      following.forEach( self.joinRoomForUser );
     } );
 
-    io.on( "message", this.message );
-    io.on( "disconnect", this.disconnect );
+    io.join( userRoom )
+      .on( "message", this.message )
+      .on( "disconnect", this.disconnect )
+      .on( "follow", this.joinRoomForUser )
+      .on( "unfollow", this.leaveRoomForUser );
 
+    this.userId = userId;
+    this.userRoom = userRoom;
     this.io = io;
   }
 
@@ -59,11 +85,25 @@ module.exports = (function() {
     },
     disconnect: function() {
       SocketManager.socketClosed( this );
+    },
+    joinRoomForUser: function( userId ) {
+      console.log( userProvider.currentUserId, "joining", "user-" + userId, "channel" );
+      this.io.join( "user-" + userId );
+    },
+    leaveRoomForUser: function( userId ) {
+      console.log( userProvider.currentUserId, "leaving", "user-" + userId, "channel" );
+      this.io.leave( "user-" + userId );
     }
   });
 
   core.broadcaster.on( "socket:emit", function( message ) {
-    SocketManager.sendToRoom( "user-" + message.userId, message.body );
+    SocketManager.sendToUserRoom( message.userId, "message", message.body );
+  });
+  core.broadcaster.on( "user:follow", function( userId ) {
+    SocketManager.sendToUserRoom( userProvider.currentUserId, "follow", userId );
+  });
+  core.broadcaster.on( "user:unfollow", function( userId ) {
+    SocketManager.sendToUserRoom( userProvider.currentUserId, "unfollow", userId );
   });
 
   return SocketManager;

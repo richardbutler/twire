@@ -1,3 +1,5 @@
+var social = require( "./action/user/social" );
+
 module.exports = (function() {
   var Router = {
     init: function( app ) {
@@ -10,7 +12,9 @@ module.exports = (function() {
 
       // Users
       app.post( "/users/create", require( "./action/user/create" ) );
-      app.get( "/users/follow/:userToFollowId", require( "./action/user/follow" ) );
+      app.get( "/users/following", social.following );
+      app.get( "/users/follow/:userToFollowId", social.follow );
+      app.get( "/users/unfollow/:userToUnfollowId", social.unfollow );
 
     }
   }
